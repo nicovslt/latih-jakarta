@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Latih Jakarta</title>
+<style>
+body{font-family:-apple-system,sans-serif;max-width:740px;margin:0 auto;padding:16px;background:#f8fafc;color:#0f172a}
+header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;border-bottom:2px solid #e2e8f0;padding-bottom:10px}
+h1{margin:0;font-size:1.3rem;color:#e11d48}
+.badge{padding:4px 10px;border-radius:16px;font-size:.85rem;font-weight:700;background:#fee2e2;color:#991b1b}
+.badge.ok{background:#dcfce7;color:#166534}
+.card{background:#fff;padding:16px;border-radius:12px;box-shadow:0 2px 6px rgba(0,0,0,.06);margin-bottom:14px}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+input,textarea,select{flex:1;padding:10px;border:1px solid #cbd5e1;border-radius:8px;font-size:1rem}
+button{background:#e11d48;color:#fff;border:none;padding:10px 14px;border-radius:8px;font-weight:600;cursor:pointer}
+button.sec{background:#334155}
+button.mic{background:#0284c7}
+button.mic.rec{background:#dc2626}
+.tabs{display:flex;gap:6px;margin-bottom:12px}
+.tab{flex:1;background:#e2e8f0;color:#0f172a}
+.tab.active{background:#e11d48;color:#fff}
+.panel{display:none}.panel.active{display:block}
+.chat{max-height:320px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:8px;padding:10px;margin-bottom:10px;background:#f1f5f9}
+.msg{margin-bottom:10px;padding:8px 12px;border-radius:8px;max-width:85%}
+.msg.user{background:#dbeafe;margin-left:auto}
+.msg.ai{background:#fff;border:1px solid #e2e8f0}
+.tip{font-size:.85rem;color:#0f766e;background:#f0fdfa;padding:6px;border-radius:6px;margin-top:6px;border-left:3px solid #0d9488}
+#err{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;padding:10px;border-radius:8px;margin-bottom:12px;display:none}
+</style>
+</head>
+<body>
+<header>
+  <h1>🇮🇩 Latih Jakarta</h1>
+  <span id="badge" class="badge">Non connecté</span>
+</header>
+<div id="err"></div>
+<div class="card row">
+  <input type="password" id="keyIn" placeholder="Collez votre clé API Google Gemini (AIza...)">
+  <button type="button" id="btnConnect">Connecter</button>
+</div>
+<div class="tabs">
+  <button type="button" class="tab active" data-t="p1">🎙️ Conversation</button>
+  <button type="button" class="tab" data-t="p2">🎧 Dialogue</button>
+  <button type="button" class="tab" data-t="p3">🔍 Décodeur</button>
+</div>
+<div id="p1" class="panel active card">
+  <div class="row" style="margin-bottom:10px">
+    <select id="scen">
+      <option value="Commander un café et un nasi goreng dans un warung à Jakarta Selatan">Au warung / café</option>
+      <option value="Discuter avec un chauffeur Gojek dans les bouchons (macet)">En Gojek (macet)</option>
+      <option value="Retrouver un ami indonésien après plusieurs années">Retrouvailles ami</option>
+    </select>
+    <button type="button" class="sec" id="btnStart">Démarrer</button>
+  </div>
+  <div id="chatBox" class="chat"></div>
+  <div class="row">
+    <button type="button" class="mic" id="btnMic">🎤 Parler</button>
+    <input type="text" id="chatIn" placeholder="Écrivez ou parlez en indonésien...">
+    <button type="button" id="btnSend">Envoyer</button>
+  </div>
+</div>
+<div id="p2" class="panel card">
+  <div class="row" style="margin-bottom:10px">
+    <input type="text" id="topicIn" placeholder="Thème (ex: travail, week-end, nourriture...)">
+    <button type="button" id="btnDial">Générer</button>
+  </div>
+  <div id="dialCtrl" class="row" style="display:none;margin-bottom:10px">
+    <button type="button" class="sec" id="btnPlay">▶️ Normal</button>
+    <button type="button" class="sec" id="btnSlow">🐢 Lent</button>
+    <button type="button" class="sec" id="btnHide">👁️ Texte</button>
+  </div>
+  <div id="dialOut"></div>
+</div>
+<div id="p3" class="panel card">
+  <textarea id="decIn" rows="3" placeholder="Collez une phrase bahasa gaul (ex: Gue lagi mager banget nih, lu jadi ikut gak?)"></textarea>
+  <button type="button" id="btnDec" style="margin-top:8px">Décortiquer</button>
+  <div id="decOut" style="margin-top:12px"></div>
+</div>
+<script>
+let key = localStorage.getItem('g_key') || '';
+let model = localStorage.getItem('g_mod') || '';
+let hist = [];
+let dialTxt = '';
+
+const badge = document.getElementById('badge');
+const err = document.getElementById('err');
+const keyIn = document.getElementById('keyIn');
+
+function showErr(m) {
+  err.textContent = 'Erreur : ' + m;
+  err.style.display = 'block';
+}
+
+function setOk() {
+  badge.textContent = 'Connecté (' + model + ')';
+  badge.classList.add('ok');
+}
+
+async function connect(k) {
+  err.style.display = 'none';
+  badge.textContent = 'Test...';
+  try {
+    const r = await fetch('https://googleapis.com' + encodeURIComponent(k));
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error?.message || 'Clé invalide');
+    const ms = (d.models || [])
+      .filter(m => m.supportedGenerationMethods && m.supportedGenerationMethods.includes('generateContent'))
+      .map(m => m.name.replace('models/', ''));
+    const c = ms.find(m => m.includes('flash')) || ms[0];
+    if (!c) throw new Error('Aucun modèle disponible');
+    key = k;
+    model = c;
+    localStorage.setItem('g_key', key);
+    localStorage.setItem('g_mod', model);
+    setOk();
+  } catch (e) {
+    badge.textContent = 'Non connecté';
+    badge.classList.remove('ok');
+    showErr(e.message);
+  }
+}
+
+document.getElementById('btnConnect').onclick = () => {
+  if (keyIn.value.trim()) connect(keyIn.value.trim());
+};
+
+if (key) {
+  keyIn.value = key;
+  connect(key);
+}
+
+document.querySelectorAll('.tab').forEach(b => {
+  b.onclick = () => {
+    document.querySelectorAll('.tab, .panel').forEach(el => el.classList.remove('active'));
+    b.classList.add('active');
+    document.getElementById(b.dataset.t).classList.add('active');
+  };
+});
+
+async function ai(prompt) {
+  if (!key || !model) {
+    showErr('Connectez votre clé API en haut.');
+    return null;
+  }
+  err.style.display = 'none';
+  try {
+    const r = await fetch('https://googleapis.com' + model + ':generateContent?key=' + encodeURIComponent(key), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error?.message || 'Erreur API');
+    return d.candidates[0].content.parts[0].text;
+  } catch (e) {
+    showErr(e.message);
+    return null;
+  }
+}
+
+function speak(t, rate = 1) {
+  if (!('speechSynthesis' in window)) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(t.replace(/[*#_]/g, ''));
+  u.lang = 'id-ID';
+  u.rate = rate;
+  speechSynthesis.speak(u);
+}
+
+function addMsg(who, txt, tip = '') {
+  const b = document.getElementById('chatBox');
+  const d = document.createElement('div');
+  d.className = 'msg ' + who;
+  d.innerHTML = txt.replace(/\n/g, '<br>') + (tip ? '<div class="tip">💡 <b>Version Jakarta :</b> ' + tip + '</div>' : '');
+  b.appendChild(d);
+  b.scrollTop = b.scrollHeight;
+}
+
+document.getElementById('btnStart').onclick = async () => {
+  document.getElementById('chatBox').innerHTML = '';
+  hist = [];
+  const r = await ai('Tu es un habitant de Jakarta de 30 ans. Lance une discussion courte (1-2 phrases) en bahasa Jakarta quotidien (gue/lu, nggak, udah, sih) sur : "' + document.getElementById('scen').value + '". Uniquement ta réplique.');
+  if (r) {
+    hist.push('AI: ' + r);
+    addMsg('ai', r);
+    speak(r);
+  }
+};
+
+async function sendChat() {
+  const inp = document.getElementById('chatIn');
+  const t = inp.value.trim();
+  if (!t) return;
+  inp.value = '';
+  hist.push('User: ' + t);
+  const r = await ai('Ami de Jakarta. Historique:\n' + hist.join('\n') + '\nRéponds UNIQUEMENT en JSON valide sans balises markdown: {"reply":"ta réponse courte en bahasa Jakarta","tip":"comment un local dirait la phrase de User (' + t + ') plus naturellement + courte explication en français"}');
+  if (!r) return;
+  try {
+    const j = JSON.parse(r.replace(/```json|```/g, '').trim());
+    addMsg('user', t, j.tip);
+    hist.push('AI: ' + j.reply);
+    addMsg('ai', j.reply);
+    speak(j.reply);
+  } catch (e) {
+    addMsg('user', t);
+    addMsg('ai', r);
+    speak(r);
+  }
+}
+
+document.getElementById('btnSend').onclick = sendChat;
+document.getElementById('chatIn').onkeypress = e => { if (e.key === 'Enter') sendChat(); };
+
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const btnMic = document.getElementById('btnMic');
+if (SR) {
+  const rec = new SR();
+  rec.lang = 'id-ID';
+  btnMic.onclick = () => {
+    btnMic.classList.add('rec');
+    btnMic.textContent = '🛑...';
+    rec.start();
+  };
+  rec.onresult = e => {
+    document.getElementById('chatIn').value = e.results[0][0].transcript;
+    sendChat();
+  };
+  rec.onend = () => {
+    btnMic.classList.remove('rec');
+    btnMic.textContent = '🎤 Parler';
+  };
+  rec.onerror = e => {
+    btnMic.classList.remove('rec');
+    btnMic.textContent = '🎤 Parler';
+    showErr('Micro: ' + e.error);
+  };
+} else {
+  btnMic.style.display = 'none';
+}
+
+document.getElementById('btnDial').onclick = async () => {
+  const r = await ai('Génère un dialogue de 6 répliques entre 2 amis à Jakarta en bahasa gaul sur "' + (document.getElementById('topicIn').value || 'la vie à Jakarta') + '". Sépare clairement par "===TRAD===" entre le dialogue indonésien et la traduction française + explication de 3 mots d argot.');
+  if (!r) return;
+  const p = r.split('===TRAD===');
+  dialTxt = p[0].trim();
+  document.getElementById('dialCtrl').style.display = 'flex';
+  document.getElementById('dialOut').innerHTML =
+    '<div id="dTxt" style="background:#f1f5f9;padding:10px;border-radius:8px;margin-bottom:8px">' + dialTxt.replace(/\n/g, '<br>') + '</div>' +
+    '<div style="background:#f0fdfa;padding:10px;border-radius:8px">' + (p[1] || '').trim().replace(/\n/g, '<br>') + '</div>';
+  speak(dialTxt, 1);
+};
+
+document.getElementById('btnPlay').onclick = () => speak(dialTxt, 1);
+document.getElementById('btnSlow').onclick = () => speak(dialTxt, 0.72);
+document.getElementById('btnHide').onclick = () => {
+  const d = document.getElementById('dTxt');
+  if (d) d.style.display = d.style.display === 'none' ? 'block' : 'none';
+};
+
+document.getElementById('btnDec').onclick = async () => {
+  const t = document.getElementById('decIn').value.trim();
+  if (!t) return;
+  const r = await ai('Analyse cette phrase bahasa Jakarta : "' + t + '". 1) Équivalent formel (baku), 2) Traduction français, 3) Détail des mots d argot/particules.');
+  if (r) {
+    document.getElementById('decOut').innerHTML = '<div style="background:#f8fafc;padding:10px;border-radius:8px;border:1px solid #e2e8f0">' + r.replace(/\n/g, '<br>') + '</div>';
+  }
+};
+</script>
+</body>
+</html>
