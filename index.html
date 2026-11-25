@@ -105,9 +105,12 @@ async function ai(prompt, customKey) {
   }
   err.style.display = 'none';
   try {
-    const r = await fetch('https://googleapis.com' + model + ':generateContent?key=' + encodeURIComponent(k), {
+    const r = await fetch('https://googleapis.com' + model + ':generateContent', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': k
+      },
       body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
     });
     const d = await r.json();
