@@ -79,7 +79,7 @@ button.mic.rec{background:#dc2626}
 </div>
 <script>
 let key = localStorage.getItem('g_key') || '';
-let model = localStorage.getItem('g_mod') || '';
+let model = 'gemini-2.5-flash';
 let hist = [];
 let dialTxt = '';
 
@@ -97,27 +97,39 @@ function setOk() {
   badge.classList.add('ok');
 }
 
-async function connect(k) {
+async function ai(prompt, customKey) {
+  const k = customKey || key;
+  if (!k) {
+    showErr('Collez votre clé API en haut.');
+    return null;
+  }
   err.style.display = 'none';
-  badge.textContent = 'Test...';
   try {
-    const r = await fetch('https://googleapis.com' + encodeURIComponent(k));
+    const r = await fetch('https://googleapis.com' + model + ':generateContent?key=' + encodeURIComponent(k), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+    });
     const d = await r.json();
-    if (!r.ok) throw new Error(d.error?.message || 'Clé invalide');
-    const ms = (d.models || [])
-      .filter(m => m.supportedGenerationMethods && m.supportedGenerationMethods.includes('generateContent'))
-      .map(m => m.name.replace('models/', ''));
-    const c = ms.find(m => m.includes('flash')) || ms[0];
-    if (!c) throw new Error('Aucun modèle disponible');
-    key = k;
-    model = c;
-    localStorage.setItem('g_key', key);
-    localStorage.setItem('g_mod', model);
-    setOk();
+    if (!r.ok) throw new Error(d.error?.message || 'Erreur API (' + r.status + ')');
+    return d.candidates[0].content.parts[0].text;
   } catch (e) {
+    showErr(e.message);
+    return null;
+  }
+}
+
+async function connect(k) {
+  const cleanKey = k.replace(/\s+/g, '');
+  badge.textContent = 'Test...';
+  const res = await ai('Réponds juste OK', cleanKey);
+  if (res) {
+    key = cleanKey;
+    localStorage.setItem('g_key', key);
+    setOk();
+  } else {
     badge.textContent = 'Non connecté';
     badge.classList.remove('ok');
-    showErr(e.message);
   }
 }
 
@@ -127,7 +139,7 @@ document.getElementById('btnConnect').onclick = () => {
 
 if (key) {
   keyIn.value = key;
-  connect(key);
+  setOk();
 }
 
 document.querySelectorAll('.tab').forEach(b => {
@@ -137,27 +149,6 @@ document.querySelectorAll('.tab').forEach(b => {
     document.getElementById(b.dataset.t).classList.add('active');
   };
 });
-
-async function ai(prompt) {
-  if (!key || !model) {
-    showErr('Connectez votre clé API en haut.');
-    return null;
-  }
-  err.style.display = 'none';
-  try {
-    const r = await fetch('https://googleapis.com' + model + ':generateContent?key=' + encodeURIComponent(key), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-    });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.error?.message || 'Erreur API');
-    return d.candidates[0].content.parts[0].text;
-  } catch (e) {
-    showErr(e.message);
-    return null;
-  }
-}
 
 function speak(t, rate = 1) {
   if (!('speechSynthesis' in window)) return;
